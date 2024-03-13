@@ -32,7 +32,7 @@ model:
   denoising_net:
     input_modules:
       one_hot:
-        num_embeddings: 13
+        num_embeddings: 12
 
     backbone:
       rbf_layer:
@@ -42,7 +42,7 @@ model:
       readout:
         net:
           input_dim: 256
-          output_dim: 13
+          output_dim: 12
           hidden_dim: 256
 
   diffusion_hp:
