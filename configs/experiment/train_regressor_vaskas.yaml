@@ -67,4 +67,4 @@ model:
 logger:
   wandb:
     tags: ${tags}
-    group: "suzuki"
+    group: "vaskas"

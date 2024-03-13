@@ -42,7 +42,7 @@ model:
   regressor_net:
     input_modules:
       one_hot:
-        num_embeddings: 12
+        num_embeddings: 13
 
     backbone:
       rbf_layer:
@@ -67,4 +67,4 @@ model:
 logger:
   wandb:
     tags: ${tags}
-    group: "vaskas"
+    group: "suzuki"
