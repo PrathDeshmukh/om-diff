@@ -57,9 +57,9 @@ model:
         trainable: true
         condition_key: "condition"
         input_scales:
-          binding_energy: [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]
+          barrier: [ 4.327 ]
         input_shifts:
-          binding_energy: [ -59.709, -7.003, -36.112, 16.743, -39.412, 2.620 ]
+          barrier: [ 11.97 ]
 
   train_loss_module:
     _target_: src.models.regression.loss.RegressorMSELoss
