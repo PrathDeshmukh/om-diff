@@ -4,7 +4,7 @@
 root_dir: ${oc.env:PROJECT_ROOT}
 
 # path to data directory
-data_dir: ${oc.env:SCRATCH_PATH}/data/
+data_dir: ${oc.env:SCRATCH_PATH}/vaskas/
 
 # path to logging directory
 log_dir: ${oc.env:SCRATCH_PATH}/logs/
