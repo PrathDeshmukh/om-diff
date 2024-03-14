@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 
 from src.data.components import Batch
-from src.models.components.atomistic import AtomisticModel
-from src.models.components.connectivity import Connectivity, fully_connected
-from src.models.components.noise.model import NormalNoiseModel
+from src.models.atomistic import AtomisticModel
+from src.models.connectivity import Connectivity, fully_connected
+from src.models.diffusion.noise.model import NormalNoiseModel
 
 
 class TimeConditionedRegressor(nn.Module):
