@@ -28,6 +28,8 @@ denoising_net:
       input_size: 288 # 256 + 2*16 for time
       node_size: 256
       edge_size: 64
+      with_edge_interactions: True
+      update_node_positions: True
     rbf_layer:
       _target_: src.models.layers.rbf.GaussianLinearRBFLayer
       n_features: 64
