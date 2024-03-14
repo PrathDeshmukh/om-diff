@@ -52,7 +52,7 @@ model:
       readout:
         readout_net:
           output_dim: 1
-        output_key: "binding_energy"
+        output_key: "barrier"
       scale_shift:
         trainable: true
         condition_key: "condition"
