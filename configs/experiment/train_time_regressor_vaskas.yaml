@@ -4,7 +4,7 @@
 
 defaults:
   - override /data: vaskas.yaml
-  - override /model: regressor.yaml
+  - override /model: time_regressor.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
   - override /trainer: gpu.yaml
@@ -12,13 +12,13 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: [ "regressor", "vaskas" ]
+tags: [ "time-regressor", "vaskas" ]
 
 
 seed: 12345
 
 trainer:
-  min_epochs: 200
+  min_epochs: 500
   max_epochs: -1
   deterministic: false
   gradient_clip_val: 1.0
@@ -26,16 +26,13 @@ trainer:
 
 data:
   db_path: ${paths.data_dir}/vaskas.db
-  batch_size: 16
+  batch_size: 64
+  train_val_split: [ 0.98, 0.02 ]
+
 
   transform_compose:
     scale_features:
       scale: 1.0
-
-    add_edges:
-      _target_: src.data.components.transforms.data.AddEdgesWithinCutoffDistanceTransform
-      cutoff: 5.0
-      keep_loops: false
 
 
 model:
@@ -54,6 +51,7 @@ model:
           output_dim: 1
         output_key: "barrier"
       scale_shift:
+        _target_: src.models.layers.features.ConditionalScaleShift
         trainable: true
         condition_key: "condition"
         input_scales:
@@ -61,8 +59,21 @@ model:
         input_shifts:
           barrier: [ 11.97 ]
 
+  noise_model:
+    _target_: src.models.diffusion.noise.model.MaskedNormalNoiseModel
+    noise_schedule:
+      _target_: src.models.diffusion.noise.schedule.FixedNoiseSchedule
+      timesteps: 1000
+    shape_mapping:
+      node_positions: [ 3 ]
+      node_features: [ 12 ]
+    center_keys: [ ]
+
   train_loss_module:
-    _target_: src.models.regression.loss.RegressorMSELoss
+    delta: 7.0
+
+  connectivity_module:
+    cutoff: 7.5
 
 logger:
   wandb:
