@@ -46,7 +46,7 @@ def parse_cmd():
     parser.add_argument(
         "--target_key",
         type=str,
-        default="barrier",
+        default="binding_energy",
     )
     parser.add_argument(
         "--target_value",
