@@ -17,6 +17,8 @@ regressor_net:
       input_size: 128
       node_size: 128
       edge_size: 64
+      with_edge_interactions: True
+      update_node_positions: True
     rbf_layer:
       _target_: src.models.layers.rbf.GaussianLinearRBFLayer
       n_features: 64
