@@ -27,6 +27,7 @@ trainer:
 data:
   db_path: ${paths.data_dir}/vaskas.db
   batch_size: 16
+  split_file: /home/scratch3/frjc/data/cv_splits_vaskas/split_9.json
 
   transform_compose:
     scale_features:
