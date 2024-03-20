@@ -159,7 +159,7 @@ class RegressorGuidedMaskedSampler(MaskedSampler):
                 
                 grad_inputs = [getattr(inputs, key) for key in self.grad_keys]
                 energy = self.guidance_strength * self.target_function(inputs, ts)
-                grads = torch.autograd.grad(energy, grad_inputs, allow_unused=True)
+                grads = torch.autograd.grad(energy, grad_inputs, allow_unused=False)
                 
             # handle masking, mask nodes and features
             node_mask = getattr(inputs, om_diff.noise_model.node_mask_key)
