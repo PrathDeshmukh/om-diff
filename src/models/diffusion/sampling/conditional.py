@@ -148,6 +148,7 @@ class RegressorGuidedMaskedSampler(MaskedSampler):
             with torch.enable_grad():
                 for key in self.grad_keys:
                     zs = getattr(inputs, key)
+                    
                     setattr(inputs, key, zs.requires_grad_())
 
                 ts = torch.full(
@@ -155,19 +156,21 @@ class RegressorGuidedMaskedSampler(MaskedSampler):
                     fill_value=t.item() - 1,
                     device=device,
                 )
-
-                energy = self.guidance_strength * self.target_function(inputs, ts)
+                
                 grad_inputs = [getattr(inputs, key) for key in self.grad_keys]
-                grads = torch.autograd.grad(energy, grad_inputs, allow_unused=False)
+                energy = self.guidance_strength * self.target_function(inputs, ts)
+                grads = torch.autograd.grad(energy, grad_inputs, allow_unused=True)
+                
             # handle masking, mask nodes and features
             node_mask = getattr(inputs, om_diff.noise_model.node_mask_key)
+            
             for i, key in enumerate(self.grad_keys):
                 features_mask: Union[torch.Tensor, None] = getattr(inputs, f"{key}_mask", None)
                 if features_mask is None:
                     mask = node_mask
                 else:
                     mask = torch.bitwise_or(features_mask, node_mask)
-
+                             
                 total_norm = torch.linalg.vector_norm(grads[i], dim=-1, keepdim=True)
 
                 # from PyTorch
