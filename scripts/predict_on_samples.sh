@@ -21,8 +21,4 @@ export SCRATCH_PATH="/home/scratch3/s222491"
 export SCRATCH_COMPUTE_PATH="/home/scratch3/s222491"
 export PYTHONPATH="$PYTHONPATH:/home/energy/s222491/om-diff"
 
-python /home/energy/s222491/om-diff/src/predict_on_samples.py \
---predictor_dir_path="/home/scratch3/s222491/logs/train/runs/2024-03-14_12-20-54/" \
---samples_path="/home/scratch3/s222491/logs/train/runs/2024-03-13_12-28-42/" \
---device="cuda" \
---file_suffix="unconditional_test"
+python /home/energy/s222491/om-diff/src/predict_on_samples.py --predictor_dir_path=$1 --samples_path=$2 --device="cuda" --file_suffix=$3
