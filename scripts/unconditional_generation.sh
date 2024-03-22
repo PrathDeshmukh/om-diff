@@ -21,7 +21,4 @@ export SCRATCH_PATH="/home/scratch3/s222491"
 export SCRATCH_COMPUTE_PATH="/home/scratch3/s222491"
 export PYTHONPATH="$PYTHONPATH:/home/energy/s222491/om-diff"
 
-python /home/energy/s222491/om-diff/src/sample_from_ckpt.py \
---dir_path=/home/scratch3/s222491/logs/train/runs/2024-03-13_12-28-42 \
---n=10 \
---device="cuda" \
+python /home/energy/s222491/om-diff/src/sample_from_ckpt.py --dir_path=$1 --n=$2 --device="cuda"
