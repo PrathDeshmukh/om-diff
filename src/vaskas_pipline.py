@@ -1,10 +1,12 @@
 from os.path import join, splitext, basename
 from xyz2mol import xyz2mol as xm
 from ase import Atoms
-from ase.io import write
+from openbabel import openbabel
+from ase.io import write, read
 from ase.db import connect
 from ase.calculators.gaussian import Gaussian, GaussianOptimizer
-from rdkit.Chem import MolToSmiles
+from rdkit.Chem import MolToSmiles, MolFromSmiles, DetectChemistryProblems
+from src.metrics.utils import atoms_to_xyz_str, remove_h2
 
 h2_energy = 0
 
@@ -12,6 +14,7 @@ h2_energy = 0
 class VaskasPipeline:
   scratch = r'/home/scratch3/s222491/'
   db_path = r'/home/scratch3/s222491/vaskas/vaskas.db'
+  
   
   def __init__(self, sample):
     self.barrier = None
@@ -21,24 +24,35 @@ class VaskasPipeline:
     self.sample = sample
     self.filename = splitext(basename(self.sample))[0]
   
-  def remove_h2(self) -> None:
-    atoms, charge, xyz = xm.read_xyz_file(self.sample)
+  def validity_check(self):
+    try:
+      atom = read(self.sample)
+      clean_atom = remove_h2(atom)
+      natoms = len(clean_atom)
+      for j, num in enumerate(reversed(clean_atom.numbers)):
+        if num == 77:
+          clean_atom.pop(natoms - j - 1)
+      xyz = atoms_to_xyz_str(clean_atom)
+      obConversion = openbabel.OBConversion()
+      obConversion.SetInFormat('xyz')
+      
+      mol = openbabel.OBMol()
+      obConversion.ReadString(mol, xyz)
+      mol.MakeDativeBonds()
+      
+      obConversion.SetOutFormat("smi")
+      smiles = obConversion.WriteString(mol)
+      
+      mol_rdk = MolFromSmiles(smiles)
+      probs = DetectChemistryProblems(mol_rdk)
+      
+      if len(probs) > 0:
+        return self.sample
     
-    ase_atom_H2 = Atoms(numbers=atoms, positions=xyz, pbc=False)
-    ase_atom = ase_atom_H2.copy()
+    except Exception as e:
+      print(f"Exception {e} in samples {self.sample}")
+      return None
     
-    AC, mol = xm.xyz2AC(atoms, xyz, charge)
-    
-    metal_connectivity = AC[atoms.index(77)]
-    H_pos = [xyz[i] for i in range(len(metal_connectivity)) if metal_connectivity[i] == 1 and atoms[i] == 1]
-    del ase_atom[[atom.index for atom in ase_atom if atom.position.tolist() in H_pos]]
-    
-    xyz_path = join(VaskasPipeline.scratch, 'generated_vaskas/generated_cat', f'{self.filename}.xyz')
-    write(xyz_path, ase_atom)
-    
-    self.cat_xyz = xyz_path
-    self.cat_atoms = ase_atom
-    self.ts_atoms = ase_atom_H2
   
   def dft(self) -> None:
     calc = Gaussian(xc='PBE',
