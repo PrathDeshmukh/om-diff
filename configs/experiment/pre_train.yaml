@@ -3,7 +3,7 @@
 # to execute this experiment run:
 
 defaults:
-  - override /data: vaskas.yaml
+  - override /data: pre_train.yaml
   - override /model: diffusion.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
@@ -32,7 +32,7 @@ model:
   denoising_net:
     input_modules:
       one_hot:
-        num_embeddings: 12
+        num_embeddings: 36
 
     backbone:
       rbf_layer:
@@ -42,7 +42,7 @@ model:
       readout:
         net:
           input_dim: 256
-          output_dim: 12
+          output_dim: 36
           hidden_dim: 256
 
   diffusion_hp:
@@ -55,7 +55,7 @@ model:
 
   noise_model:
     shape_mapping:
-      node_features: [ 12 ]
+      node_features: [ 36 ]
 
   connectivity_module:
     cutoff: 7.5
