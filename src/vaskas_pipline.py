@@ -2,8 +2,9 @@ import glob, os
 import argparse
 import ase
 import submitit
+import torch
 from ase.io import write, read, iread
-
+import sys
 from ase.calculators.gaussian import Gaussian, GaussianOptimizer
 from rdkit.Chem import DetectChemistryProblems, rdDetermineBonds
 from rdkit import Chem
@@ -30,7 +31,7 @@ def parse_cmd():
 
 cmd_args = parse_cmd()
 samples_path = os.path.join(cmd_args.samples_path, 'samples.xyz')
-barrier_criteria = cmd_args.barrier_path
+barrier_criteria = cmd_args.barrier_criteria
 predictions = os.path.join(cmd_args.samples_path, 'predictions.pt')
 
 
@@ -177,13 +178,9 @@ class ValidityCheck:
 ds_path = r"/home/scratch3/s222491/vaskas/coordinates_complex"
 all_ds_xyz = glob.glob(os.path.join(ds_path, "*.xyz"))
 all_ds_atoms = [read(xyz) for xyz in all_ds_xyz]
-ds_atoms_cleaned = []
-for a in all_ds_atoms:
-  del a[[1, 2]]
-  ds_atoms_cleaned.append(a)
 
 
-def atoms2fp(clean_atom):
+def atoms2fp(clean_atom, charges):
   natoms = len(clean_atom)
   for j, num in enumerate(reversed(clean_atom.numbers)):
     if num == 77:
@@ -194,7 +191,6 @@ def atoms2fp(clean_atom):
   for l in As_index:
     clean_atom[l].symbol = 'P'
   fps_arr = []
-  charges = [-2, -1, 0, 1, 2]
   
   for chg in charges:
     try:
@@ -215,14 +211,14 @@ def atoms2fp(clean_atom):
   return fps_arr
 
 
-all_ds_fps = [atoms2fp(ds_atoms) for ds_atoms in ds_atoms_cleaned]
+all_ds_fps = [atoms2fp(ds_atoms, charges=[-1]) for ds_atoms in all_ds_atoms]
 
-
+charges = [-2,-1,0,1,2]
 def novelty(sample):
   sim_arr = []
   try:
     clean_atoms, H_ind = remove_h2(sample)
-    gen_fps = atoms2fp(clean_atoms)
+    gen_fps = atoms2fp(clean_atoms, charges=charges)
     
     for fps in gen_fps:
       for j, ds_fps in enumerate(all_ds_fps):
@@ -230,27 +226,28 @@ def novelty(sample):
           for ds_fp in ds_fps:
             sim = Chem.DataStructs.TanimotoSimilarity(ds_fp, fps)
             if sim >= 0.90:
-              print(f"Similarity {sim} for sample {i} with ds sample {j}")
               sim_arr.append([sim, j])
         except:
           pass
-  except Exception as e:
-    print(f"Exception {e} in sample {i}")
+  except:
+    pass
   
   if len(sim_arr) > 0:
+    print(sim_arr)
     return None
   else:
     return sample
 
 
 all_samples = iread(samples_path)
+all_samples_list = list(all_samples)
 H_energy = -1.1389  # Write H energy
 
 novel_samples = []
 valid_samples = []
 labels = []
 
-for i, sample in enumerate(all_samples):
+for i, sample in enumerate(all_samples_list):
   novel_sample = novelty(sample)
   if novel_sample:
     novel_samples.append(sample)
@@ -264,10 +261,14 @@ print(f"No. of novel samples: {len(novel_samples)}")
 print(f"No. of valid samples: {len(valid_samples)}")
 print(f"Total number of samples: {i}")
 
-all_samples_list = list(all_samples)
 preds = torch.load(predictions)
-samples_for_dft = [all_samples_list[i] for i in labels if preds['barrier'][i] <= barrier_criteria + 1]
 
+samples_for_dft = [all_samples_list[k] for k in labels if preds['barrier'][k] <= barrier_criteria + 1]
+
+for dft_sample in samples_for_dft:
+  write('samples_for_dft2.xyz', dft_sample, append=True)
+print(labels)
+sys.exit()
 executor = submitit.AutoExecutor(folder="sublogs/")
 
 if executor._executor.__class__.__name__ == 'SlurmExecutor':
