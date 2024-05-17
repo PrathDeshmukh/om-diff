@@ -9,6 +9,7 @@ import sys
 from ase.calculators.gaussian import Gaussian, GaussianOptimizer
 from rdkit.Chem import DetectChemistryProblems, rdDetermineBonds
 from rdkit import Chem
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from src.metrics.utils import remove_h2, atoms_to_xyz_str, write_basisfile
@@ -33,11 +34,13 @@ def parse_cmd():
 
 
 cmd_args = parse_cmd()
-samples_path = os.path.join(cmd_args.samples_path, 'samples.xyz')
+samples_path = cmd_args.samples_path
+samples_xyz = os.path.join(cmd_args.samples_path, 'samples.xyz')
 barrier_criteria = cmd_args.barrier_criteria
 predictions = os.path.join(cmd_args.samples_path, 'predictions.pt')
+basis_dir = os.mkdir(os.path.join(samples_path, 'basisfiles'))
 
-header_row = ['label', 'barrier']
+header_row = ['label', 'cat_energy', 'ts_energy', 'barrier']
 with open(os.path.join(samples_path, 'barrier_energies.csv'), 'w') as f:
   writer = csv.writer(f)
   writer.writerow(header_row)
@@ -55,33 +58,36 @@ class RunDFT:
     self.charge = charge
     self.H_index = None
     self.label = label
-    write_basisfile(self.ts, basisfile=basis, label=self.label)
+    self.basis_file_path = write_basisfile(self.ts, basisfile=basis, label=self.label, save_path=samples_path)
   
   def catOpt(self):
     atoms, self.H_index = remove_h2(self.ts)
     
     calc_opt = Gaussian(mem='8GB',
-                        label=os.path.join(samples_path, 'gaussian/', self.label),
+                        nprocshared=24,
+                        label=os.path.join(samples_path, 'gaussian', str(self.label)),
                         xc='PBE',
-                        chk=os.path.join(samples_path, 'gaussian/', f'cat_{self.label}.chk'),
-                        basisfile=basis,
+                        basisfile=self.basis_file_path,
+                        command = 'g16 < PREFIX.com > PREFIX.log',
                         mult=1,
-                        charge=self.charge
+                        charge=self.charge,
+                        extra="nosymm EmpiricalDispersion=GD3 pseudo=read"
                         )
     opt = GaussianOptimizer(atoms, calc_opt)
     opt.run(fmax='tight')
     
-    write(os.path.join(samples_path, 'gaussian/', f'cat_{self.label}.xyz'), atoms)
+    write(os.path.join(samples_path, 'gaussian', f'cat_{self.label}.xyz'), atoms)
     energy = atoms.get_potential_energy()
     
     return energy
   
   def tsOpt(self, atoms):
     calc_opt = Gaussian(mem='8GB',
-                        label=os.path.join(samples_path,'gaussian/', self.label),
-                        xc='PBE',
-                        chk=os.path.join(samples_path,'gaussian/', f'ts_{self.label}.chk'),
-                        basisfile=basis,
+                        nprocshared=24,
+                        label=os.path.join(samples_path,'gaussian', str(self.label)),
+                        xc='PBE',                
+                        basisfile=self.basis_file_path,
+                        command = 'g16 < PREFIX.com > PREFIX.log',
                         mult=1,
                         charge=self.charge,
                         extra="nosymm EmpiricalDispersion=GD3 pseudo=read"
@@ -98,10 +104,11 @@ class RunDFT:
     addsec = f"B {self.H_index[0] + 1} {self.H_index[1] + 1} F"
     
     calc_opt = Gaussian(mem='8GB',
-                        label=os.path.join(samples_path,'gaussian/', self.label),
+                        nprocshared=24,
+                        label=os.path.join(samples_path,'gaussian', str(self.label)),
                         xc='PBE',
-                        chk=os.path.join(samples_path,'gaussian/', f'ts_freeze_{self.label}.chk'),
-                        basisfile=basis,
+                        basisfile=self.basis_file_path,
+                        command = 'g16 < PREFIX.com > PREFIX.log',
                         addsec=addsec,
                         mult=1,
                         charge=self.charge,
@@ -127,7 +134,7 @@ def compute_dft(sample, label, charge):
       barrier = ts_energy - cat_energy - H_energy
       with open(os.path.join(samples_path, 'barrier_energies.csv'), 'a') as file:
         writer = csv.writer(file)
-        writer.writerow([label, barrier])
+        writer.writerow([label, cat_energy, ts_energy, barrier])
       file.close()
       return barrier
     except:
@@ -136,7 +143,7 @@ def compute_dft(sample, label, charge):
         barrier = ts_energy - cat_energy - H_energy
         with open(os.path.join(samples_path, 'barrier_energies.csv'), 'a') as file:
           writer = csv.writer(file)
-          writer.writerow([label,barrier])
+          writer.writerow([label, cat_energy, ts_energy, barrier])
         file.close()
         return label, barrier
       
@@ -251,13 +258,12 @@ def novelty(sample):
     pass
   
   if len(sim_arr) > 0:
-    print(sim_arr)
     return None
   else:
     return sample
 
 
-all_samples = iread(samples_path)
+all_samples = iread(samples_xyz)
 all_samples_list = list(all_samples)
 H_energy = -1.1389  # Write H energy
 
@@ -285,18 +291,10 @@ valid_count = len(valid_samples)
 total_count = len(all_samples_list)
 
 print(f"No. of novel samples: {novel_count}")
-print(f"Percentage of novel samples: {float(novel_count/total_count)}%")
+print(f"Percentage of novel samples: {float(novel_count*100/total_count)}%")
 print(f"No. of valid samples: {valid_count}")
-print(f"Percentage of valid samples: {float(valid_count/total_count)}%")
+print(f"Percentage of valid samples: {float(valid_count*100/total_count)}%")
 print(f"Total number of samples: {total_count}")
-
-with open(os.path.join(samples_path,'stats.txt'), 'w') as f:
-  f.write(f"No. of novel samples: {novel_count}" + '\n')
-  f.write(f"Percentage of novel samples: {float(novel_count/total_count)}%" + '\n')
-  f.write(f"No. of valid samples: {valid_count}" + '\n')
-  f.write(f"Percentage of valid samples: {float(valid_count/total_count)}%" + '\n')
-  f.write(f"Total number of samples: {total_count}" + '\n')
-  f.close()
 
 preds = torch.load(predictions)
 
@@ -309,17 +307,27 @@ plt.xlabel("Barrier energy")
 plt.savefig(os.path.join(samples_path, 'pre-screening_energy_dist.png'))
 plt.clf()
 
-samples_for_dft = [all_samples_list[k] for k in labels if preds['barrier'][k] <= barrier_criteria + 1]
+samples_for_dft = [all_samples_list[k] for k in labels if preds['barrier'][k] <= barrier_criteria]
 
-for dft_sample in samples_for_dft:
-  write('samples_for_dft2.xyz', dft_sample, append=True)
-print(labels)
+print(f"No. of samples selected for DFT: {len(samples_for_dft)}")
+print(f"Percentage of samples selected for DFT: {float(len(samples_for_dft)*100/total_count)}%")
 
-post_screening_energies = [preds['barrier'][k] for k in labels]
-sns.histplot(barrier_np,
+post_screening_energies = np.array([barrier_np[k] for k in labels if barrier_np[k] <= barrier_criteria + 1])
+
+sns.histplot(post_screening_energies,
              kde=True)
 plt.xlabel("Barrier energy")
 plt.savefig(os.path.join(samples_path, 'post-screening_energy_dist.png'))
+
+with open(os.path.join(samples_path,'stats.txt'), 'w') as f:
+  f.write(f"No. of novel samples: {novel_count}" + '\n')
+  f.write(f"Percentage of novel samples: {float(novel_count*100/total_count)}%" + '\n')
+  f.write(f"No. of valid samples: {valid_count}" + '\n')
+  f.write(f"Percentage of valid samples: {float(valid_count*100/total_count)}%" + '\n')
+  f.write(f"No. of samples selected for DFT: {len(samples_for_dft)}" + '\n')
+  f.write(f"Percentage of samples selected for DFT: {float(len(samples_for_dft)*100/total_count)}%" + '\n')
+  f.write(f"Total number of samples: {total_count}" + '\n')
+  f.close()
 
 executor = submitit.AutoExecutor(folder=os.path.join(samples_path, "sublogs/"))
 
