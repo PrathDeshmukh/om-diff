@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from src.metrics.utils import remove_h2, atoms_to_xyz_str, write_basisfile
 
-basis = r'/home/energy/s222491/TS_basis.gbs'
-basis_freeze = r'/home/energy/s222491/TS_basis_freeze.gbs'
+basis = r'/home/energy/s222491/om-diff/scripts/TS_basis.gbs'
+basis_freeze = r'/home/energy/s222491/om-diff/scripts/TS_basis_freeze.gbs'
 
 def parse_cmd():
   parser = argparse.ArgumentParser(description="Checking validty and novelty of samples and running DFT calculations")
