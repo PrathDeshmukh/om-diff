@@ -4,10 +4,13 @@ import ase
 import submitit
 import torch
 import csv
+import pickle as pkl
 from ase.io import write, read, iread
 import sys
 from ase.calculators.gaussian import Gaussian, GaussianOptimizer
 from rdkit.Chem import DetectChemistryProblems, rdDetermineBonds
+from ase.optimize import BFGS
+from xtb.ase.calculator import XTB
 from rdkit import Chem
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,6 +18,7 @@ import seaborn as sns
 from src.metrics.utils import remove_h2, atoms_to_xyz_str, write_basisfile
 
 basis = r'/home/energy/s222491/TS_basis.gbs'
+basis_freeze = r'/home/energy/s222491/TS_basis_freeze.gbs'
 
 def parse_cmd():
   parser = argparse.ArgumentParser(description="Checking validty and novelty of samples and running DFT calculations")
@@ -39,6 +43,8 @@ samples_xyz = os.path.join(cmd_args.samples_path, 'samples.xyz')
 barrier_criteria = cmd_args.barrier_criteria
 predictions = os.path.join(cmd_args.samples_path, 'predictions.pt')
 basis_dir = os.mkdir(os.path.join(samples_path, 'basisfiles'))
+ts_opt_dir = os.mkdir(os.path.join(samples_path, 'TS_opt'))
+cat_opt_dir = os.mkdir(os.path.join(samples_path, 'cat_opt'))
 
 header_row = ['label', 'cat_energy', 'ts_energy', 'barrier']
 with open(os.path.join(samples_path, 'barrier_energies.csv'), 'w') as f:
@@ -58,14 +64,19 @@ class RunDFT:
     self.charge = charge
     self.H_index = None
     self.label = label
-    self.basis_file_path = write_basisfile(self.ts, basisfile=basis, label=self.label, save_path=samples_path)
+    self.basis_file_path = write_basisfile(self.ts, basisfile=basis, label=self.label, save_path=samples_path, freeze=False)
   
   def catOpt(self):
     atoms, self.H_index = remove_h2(self.ts)
     
+    atoms.calc = XTB(method='GFN2-xTB')
+  
+    opt_xtb = BFGS(atoms)
+    opt_xtb.run(fmax=0.05)
+    
     calc_opt = Gaussian(mem='8GB',
                         nprocshared=24,
-                        label=os.path.join(samples_path, 'gaussian', str(self.label)),
+                        label=os.path.join(samples_path, 'cat_opt', str(self.label)),
                         xc='PBE',
                         basisfile=self.basis_file_path,
                         command = 'g16 < PREFIX.com > PREFIX.log',
@@ -76,78 +87,74 @@ class RunDFT:
     opt = GaussianOptimizer(atoms, calc_opt)
     opt.run(fmax='tight')
     
-    write(os.path.join(samples_path, 'gaussian', f'cat_{self.label}.xyz'), atoms)
     energy = atoms.get_potential_energy()
     
-    return energy
+    return energy, atoms
   
   def tsOpt(self, atoms):
     calc_opt = Gaussian(mem='8GB',
                         nprocshared=24,
-                        label=os.path.join(samples_path,'gaussian', str(self.label)),
+                        label=os.path.join(samples_path,'TS_opt', f'{self.label}_TS'),
                         xc='PBE',                
                         basisfile=self.basis_file_path,
                         command = 'g16 < PREFIX.com > PREFIX.log',
                         mult=1,
                         charge=self.charge,
-                        extra="nosymm EmpiricalDispersion=GD3 pseudo=read"
+                        extra="nosymm EmpiricalDispersion=GD3 pseudo=read freq=noraman"
                         )
     opt = GaussianOptimizer(atoms, calc_opt)
-    opt.run(opt='calcfc,ts')
+    opt.run(opt='calcfc,ts,noeigen')
     
     energy = atoms.get_potential_energy()
-    write(os.path.join(samples_path, 'TS_optimized', f'ts_{self.label}.xyz'), atoms)
-    return energy
+    
+    return energy, atoms
   
   def tsFreeze(self):
     atoms = self.ts
-    addsec = f"B {self.H_index[0] + 1} {self.H_index[1] + 1} F"
+
+    atoms.set_distance(self.H_index[0], self.H_index[1], 1.0, fix=0, add=False) 
+    addsec = f"B {self.H_index[0] + 1} {self.H_index[1] + 1} F \n"
+    basis_path = write_basisfile(atoms, basisfile=basis_freeze, label=self.label, save_path=samples_path, freeze=True, addsec=addsec)
     
     calc_opt = Gaussian(mem='8GB',
                         nprocshared=24,
-                        label=os.path.join(samples_path,'gaussian', str(self.label)),
+                        label=os.path.join(samples_path,'TS_opt', f'{self.label}_TS_fz'),
                         xc='PBE',
-                        basisfile=self.basis_file_path,
+                        basisfile=basis_path,
                         command = 'g16 < PREFIX.com > PREFIX.log',
-                        addsec=addsec,
                         mult=1,
                         charge=self.charge,
                         extra="nosymm EmpiricalDispersion=GD3 pseudo=read"
                         )
     opt = GaussianOptimizer(atoms, calc_opt)
-    opt.run(opt='addredun')
+    opt.run(opt='modredun')
     
-    energy = self.tsOpt(atoms=atoms)
-    return energy
+    ts_e, ts_at = self.tsOpt(atoms=atoms)
+    
+    return ts_e, ts_at
 
 
 def compute_dft(sample, label, charge):
   dft = RunDFT(sample, label, charge)
   try:
-    cat_energy = dft.catOpt()
+    cat_energy, cat_atoms = dft.catOpt()
+    write(os.path.join(samples_path, 'cat_opt', f'cat_{label}.xyz'), cat_atoms)
+   
   except Exception as e:
     print(f"Exception {e} in complex no. {label}")
     return None
   else:
     try:
-      ts_energy = dft.tsOpt(sample)
-      barrier = ts_energy - cat_energy - H_energy
+      ts_energy, ts_atoms = dft.tsFreeze()
+      write(os.path.join(samples_path, 'TS_opt', f'ts_{label}.xyz'), ts_atoms)
+      #barrier = ts_energy - cat_energy - H_energy
       with open(os.path.join(samples_path, 'barrier_energies.csv'), 'a') as file:
-        writer = csv.writer(file)
-        writer.writerow([label, cat_energy, ts_energy, barrier])
+       writer = csv.writer(file)
+       writer.writerow([label, cat_energy, ts_energy])
       file.close()
-      return barrier
-    except:
-      try:
-        ts_energy = dft.tsFreeze()
-        barrier = ts_energy - cat_energy - H_energy
-        with open(os.path.join(samples_path, 'barrier_energies.csv'), 'a') as file:
-          writer = csv.writer(file)
-          writer.writerow([label, cat_energy, ts_energy, barrier])
-        file.close()
-        return label, barrier
-      
-      except:
+      return label, barrier
+    except Exception as e:
+        print(f"Exception {e}")
         print(f"No transition state for sample {label}")
         return None
 
@@ -161,7 +168,7 @@ class ValidityCheck:
   
   def checkvalidity(self):
     try:
-      atom = sample
+      atom = self.ts
       clean_atom, H_ind = remove_h2(atom)
       natoms = len(clean_atom)
       for j, num in enumerate(reversed(clean_atom.numbers)):
@@ -186,7 +193,7 @@ class ValidityCheck:
           smi = Chem.MolToSmiles(mol)
           frags = smi.split(".")
           if len(probs) == 0 and len(frags) <= 4:
-            return_chg.append(chg)
+            return_chg.append(chg+1)
             break
           else:
             continue
@@ -230,15 +237,18 @@ def atoms2fp(clean_atom, charges):
       fp = Chem.RDKFingerprint(mol)
       if fp:
         fps_arr.append(fp)
+        break
+      else:
+        continue
     except:
       pass
   
   return fps_arr
 
+charges = [-1, 0, -2]
 
-all_ds_fps = [atoms2fp(ds_atoms, charges=[-1]) for ds_atoms in all_ds_atoms]
+all_ds_fps = [atoms2fp(ds_atoms, charges=charges) for ds_atoms in all_ds_atoms]
 
-charges = [-2,-1,0]
 def novelty(sample):
   sim_arr = []
   try:
@@ -265,26 +275,36 @@ def novelty(sample):
 
 all_samples = iread(samples_xyz)
 all_samples_list = list(all_samples)
-H_energy = -1.1389  # Write H energy
 
+preds = torch.load(predictions)
+barrier = preds['barrier']
+barrier_np = barrier.detach().cpu().numpy()
+
+H_energy = -1.1605504  # Energy in Hartrees
+
+samples_for_dft = []
 novel_samples = []
 valid_samples = []
 valid_charges = []
 labels = []
+post_screening_energies = []
 
-for i, sample in enumerate(all_samples_list):
+for label, (sample, pred) in enumerate(zip(all_samples_list, barrier_np)):
   novel_sample = novelty(sample)
   if novel_sample:
     novel_samples.append(sample)
-    val_chk = ValidityCheck(novel_sample)
+    val_chk = ValidityCheck(sample)
     sample_validity = val_chk.checkvalidity()
     if sample_validity is not None:
       valid_sample, valid_chg = sample_validity
       valid_samples.append(valid_sample)
-      valid_charges.append(valid_chg)
-      labels.append(i)
+      if pred[0] <= barrier_criteria + 1:
+        samples_for_dft.append(sample)
+        valid_charges.append(valid_chg)
+        labels.append(label)
+        post_screening_energies.append(pred[0])
 
-assert len(valid_samples) == len(valid_charges), "No. of samples and charges is not equal"
+assert len(samples_for_dft) == len(valid_charges) == len(labels), "No. of samples and charges is not equal"
 
 novel_count = len(novel_samples)
 valid_count = len(valid_samples)
@@ -292,14 +312,11 @@ total_count = len(all_samples_list)
 
 print(f"No. of novel samples: {novel_count}")
 print(f"Percentage of novel samples: {float(novel_count*100/total_count)}%")
-print(f"No. of valid samples: {valid_count}")
-print(f"Percentage of valid samples: {float(valid_count*100/total_count)}%")
+print(f"No. of valid and novel samples: {valid_count}")
+print(f"Percentage of valid and novel samples: {float(valid_count*100/total_count)}%")
 print(f"Total number of samples: {total_count}")
-
-preds = torch.load(predictions)
-
-barrier = preds['barrier']
-barrier_np = barrier.detach().cpu().numpy()
+print(f"No. of samples selected for DFT: {len(samples_for_dft)}")
+print(f"Percentage of samples selected for DFT: {float(len(samples_for_dft)*100/total_count)}%")
 
 sns.histplot(barrier_np,
              kde=True)
@@ -307,23 +324,19 @@ plt.xlabel("Barrier energy")
 plt.savefig(os.path.join(samples_path, 'pre-screening_energy_dist.png'))
 plt.clf()
 
-samples_for_dft = [all_samples_list[k] for k in labels if preds['barrier'][k] <= barrier_criteria]
-
-print(f"No. of samples selected for DFT: {len(samples_for_dft)}")
-print(f"Percentage of samples selected for DFT: {float(len(samples_for_dft)*100/total_count)}%")
-
-post_screening_energies = np.array([barrier_np[k] for k in labels if barrier_np[k] <= barrier_criteria + 1])
-
 sns.histplot(post_screening_energies,
              kde=True)
 plt.xlabel("Barrier energy")
 plt.savefig(os.path.join(samples_path, 'post-screening_energy_dist.png'))
 
+with open(os.path.join(samples_path, 'samples_for_dft.pkl'), 'wb') as file:
+   pkl.dump(samples_for_dft, file)
+
 with open(os.path.join(samples_path,'stats.txt'), 'w') as f:
   f.write(f"No. of novel samples: {novel_count}" + '\n')
   f.write(f"Percentage of novel samples: {float(novel_count*100/total_count)}%" + '\n')
-  f.write(f"No. of valid samples: {valid_count}" + '\n')
-  f.write(f"Percentage of valid samples: {float(valid_count*100/total_count)}%" + '\n')
+  f.write(f"No. of valid and novel samples: {valid_count}" + '\n')
+  f.write(f"Percentage of valid and novel samples: {float(valid_count*100/total_count)}%" + '\n')
   f.write(f"No. of samples selected for DFT: {len(samples_for_dft)}" + '\n')
   f.write(f"Percentage of samples selected for DFT: {float(len(samples_for_dft)*100/total_count)}%" + '\n')
   f.write(f"Total number of samples: {total_count}" + '\n')
