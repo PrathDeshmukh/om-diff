@@ -1,8 +1,8 @@
 from io import StringIO
-import xyz2mol.xyz2mol as xm
+import xyz2mol as xm
 import ase
 from ase import Atoms
-from os.path import join
+from os.path import join, dirname
 from ase.io import read, write
 
 def atoms_to_xyz_str(atoms: ase.Atoms):
@@ -30,16 +30,22 @@ def remove_h2(sample):
   return ase_atom, H_index
 
 
-def write_basisfile(atoms, basisfile, label):
-  at_types = atoms.symbols.species()
+def write_basisfile(atoms, basisfile, label, save_path, freeze:bool, addsec=None):
+  at_copy = atoms.copy()
+  at_types = at_copy.symbols.species()
   at_types.remove('Ir')
   at_list = list(at_types)
-  print(at_list)
   
   with open(basisfile, 'r') as file:
     lines = file.readlines()
+  if freeze:
+    lines[0] = addsec
+    lines[5] = " ".join(at_list) + " " + "0" + "\n"
+    path_to_file = join(save_path, "basisfiles", f"basisfile_{label}_freeze.gbs")
+  else:
+     lines[3] = " ".join(at_list) + " " + "0" + "\n"
+     path_to_file = join(save_path, "basisfiles", f"basisfile_{label}.gbs")
   
-  lines[3] = " ".join(at_list) + " " + "0" + "\n"
-  
-  with open(f"basisfile_{label}", 'w') as f:
+  with open(path_to_file, 'w') as f:
     f.writelines(lines)
+  return path_to_file
