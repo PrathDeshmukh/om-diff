@@ -100,9 +100,9 @@ if __name__ == "__main__":
 
     with torch.inference_mode():
         ts = torch.arange(
-            0, model.edm.timesteps + 1, step=cmd_args.step, device=device, dtype=torch.long
+            0, model.om_diff.timesteps + 1, step=cmd_args.step, device=device, dtype=torch.long
         )
-        ts[-1] = model.edm.timesteps - 1
+        ts[-1] = model.om_diff.timesteps - 1
         for t in ts:
             for t_i in range(cmd_args.n_per_timestep):
                 test_i = 0
@@ -115,24 +115,24 @@ if __name__ == "__main__":
                         device=batch.node_features.device,
                     )
 
-                    if not isinstance(model.edm, OMDiff):
+                    if not isinstance(model.om_diff, OMDiff):
                         batch.node_positions = ops.center_splits(
                             batch.node_positions, batch.num_nodes
                         )
 
                     batch_copy = copy.deepcopy(batch)
 
-                    noisy_inputs, target_noise, gamma_t = model.edm.forward_diffusion(batch, ts)
+                    noisy_inputs, target_noise, gamma_t = model.om_diff.forward_diffusion(batch, ts)
                     (
                         alpha_t,
                         sigma_t,
-                    ) = model.edm.noise_model.noise_schedule.get_alpha_sigma_from_gamma(gamma_t)
+                    ) = model.om_diff.noise_model.noise_schedule.get_alpha_sigma_from_gamma(gamma_t)
                     alpha_t = torch.repeat_interleave(alpha_t, batch.num_nodes, dim=0)
                     sigma_t = torch.repeat_interleave(sigma_t, batch.num_nodes, dim=0)
 
                     noisy_batch_copy = copy.deepcopy(noisy_inputs)
 
-                    predicted_noise = model.edm.forward(noisy_inputs, ts)
+                    predicted_noise = model.om_diff.forward(noisy_inputs, ts)
 
                     target_x = {key: getattr(batch_copy, key) for key in target_noise}
                     predicted_x = {
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                     }
 
                     num_nodes = batch.num_nodes
-                    if isinstance(model.edm, MaskedEDM):
+                    if isinstance(model.om_diff, OMDiff):
                         print(f"> Doing masking ...")
                         # remove masked nodes to avoid biasing the loss
                         mask = ~noisy_inputs.node_mask.view(-1)  # OBS: not
